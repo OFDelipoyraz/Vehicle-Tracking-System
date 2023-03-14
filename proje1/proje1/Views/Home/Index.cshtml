@@ -1,0 +1,182 @@
+﻿@using proje1.Models;
+
+@{
+    Layout = null;
+    var customer = (Customer)ViewData["customer"];
+    var vehicle1 = (List<Vehicle>)ViewData["vehicle1"];
+    var vehicle2 = (List<Vehicle>)ViewData["vehicle2"];
+}
+
+<!DOCTYPE html>
+
+<html>
+<head>
+    <meta name="viewport" content="width=device-width" />
+    <title>Index</title>
+    <link rel="stylesheet" href="~/Content/Css/map.css">
+    <link rel="stylesheet" href="~/Content/Css/popup.css" />
+    <link rel="stylesheet" href="~/Content/Css/scrollbar.css" />
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="logo">
+                <img src="~/Content/images/logo.png" alt="">
+            </div>
+            <div class="menu">
+                <ul>
+                    <li><a href="#">Home</a></li>
+                    <li><a href="#">Contact</a></li>
+                    <li><a href="#">About</a></li>
+                </ul>
+            </div>
+            <div class="cus-icon">
+                <img src="~/Content/images/icon.png" alt="">
+            </div>
+            <div class="cus-info">
+                <a href="#">@customer.CusName @customer.CusLastName</a>
+                <ul>
+                    <li>
+                        <a href="/Home/Logout">Sign out</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+        <div class="body">
+            <div id="map"></div>
+            <div class="list-container">
+                <h2>Your Vehicles</h2>
+                <div class="list-element">
+                    <div class="row">
+                        Vehicle ID: @vehicle1[0].ID
+                    </div>
+                    <button type="button" id="btn1">Preview</button>
+                </div>
+                <div class="list-element">
+                    <div class="row">
+                        Vehicle ID: @vehicle2[0].ID
+                    </div>
+                    <button type="button" id="btn2">Preview</button>
+                </div>
+                <div class="popup" id="popup">
+                    <div class="popup-content">
+                        <h3 id="h3"></h3>
+                        <hr>
+                        @using (Html.BeginForm("Map", "Home", FormMethod.Post, new { target = "_blank" }))
+                        {
+                            <div class="form-control">
+                                <label>Begin:</label>
+                                <input type="time" name="begin" id="begin">
+                            </div>
+                            <div class="form-control">
+                                <label>&nbsp;&nbsp;End:&nbsp;</label>
+                                <input type="time" name="end" id="end">
+                            </div>
+                            <div class="form-control">
+                                <input type="submit" value="View">
+                            </div>
+                            <div class="id">
+                                <input type="text" id="vId" name="vId" />
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="nebu">
+            190202081@kocaeli.edu.tr |
+            190202109@kocaeli.edu.tr
+        </div>
+    </div>
+
+    <script>
+        var vehicle1 = @Html.Raw(Json.Encode(vehicle1));
+        var vehicle2 = @Html.Raw(Json.Encode(vehicle2));
+
+        let map;
+        function initMap() {
+            map = new google.maps.Map(document.getElementById("map"), {
+                center: { lat: Number(vehicle1[0].Lat), lng: Number(vehicle1[0].Lng) },
+                zoom: 12,
+            });
+
+            var latLngsV1 = [];
+            var latLngsV2 = [];
+            var iconUrlV1 = "http://maps.google.com/mapfiles/ms/icons/yellow-dot.png";
+            var iconUrlV2 = "http://maps.google.com/mapfiles/ms/icons/green-dot.png";
+            var colorV1 = "red";
+            var colorV2 = "blue";
+
+            for (let i = 0; i < vehicle1.length; i++) {
+                const newLatLng = new google.maps.LatLng(Number(vehicle1[i].Lat), Number(vehicle1[i].Lng));
+                const title = "Vehicle Id: " + vehicle1[i].ID + " | Location: " + i;
+                addMarker({ coords: newLatLng }, title, iconUrlV1);
+                latLngsV1.push(newLatLng);
+            }
+
+            for (let i = 0; i < vehicle2.length; i++) {
+                const newLatLng = new google.maps.LatLng(Number(vehicle2[i].Lat), Number(vehicle2[i].Lng));
+                const title = "Vehicle Id: " + vehicle2[i].ID + " | Location: " + i;
+                addMarker({ coords: newLatLng }, title, iconUrlV2);
+                latLngsV2.push(newLatLng);
+            }
+
+            drawLine(latLngsV1, colorV1);
+            drawLine(latLngsV2, colorV2);
+
+            function addMarker(proops, title, iconUrl) {
+                const marker = new google.maps.Marker({
+                    position: proops.coords,
+                    map: map,
+                    title: title,
+                    icon: iconUrl
+                });
+            }
+
+            function drawLine(latlng, color) {
+                var line = new google.maps.Polyline({
+                    path: latlng,
+                    geodesic: true,
+                    strokeColor: color,
+                    strokeOpacity: 1.0,
+                    strokeWeight: 2,
+                });
+                line.setMap(map);
+            }
+        };
+    </script>
+    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCXWuRsJJ7CWNPT5hseKv_RIry8uH9Jtr0&callback=initMap&v=weekly" async></script>
+
+    <script>
+        var popup = document.getElementById('popup');
+        var btn1 = document.getElementById("btn1");
+        var btn2 = document.getElementById("btn2");
+        var vId = document.querySelector('input[name="vId"]');
+        var begin = document.querySelector('input[name="begin"]');
+        var end = document.querySelector('input[name="end"]');
+        var h3 = document.getElementById("h3");
+
+        btn1.onclick = function () {
+            vId.value = @vehicle1[0].ID;
+            h3.innerHTML = "<h3>Vehicle Id: @vehicle1[0].ID</h3>";
+            begin.value = "01:00:00";
+            end.value = "00:00:00";
+            popup.style.display = "block";
+        }
+
+        btn2.onclick = function () {
+            vId.value = @vehicle2[0].ID;
+            h3.innerHTML = "<h3>Vehicle Id: @vehicle2[0].ID</h3>";
+            begin.value = "01:00:00";
+            end.value = "00:00:00";
+            popup.style.display = "block";
+        }
+
+        window.onclick = function (event) {
+            if (event.target == popup) {
+                popup.style.display = "none";
+            }
+        }
+    </script>
+</body>
+</html>

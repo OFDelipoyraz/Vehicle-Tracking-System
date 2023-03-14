@@ -1,0 +1,1032 @@
+using MongoDB.Bson;
+using MongoDB.Driver;
+using proje1.Database;
+using proje1.Models;
+using System;
+using System.Collections.Generic;
+using System.Data.SqlClient;
+using System.Linq;
+using System.Web;
+using System.Web.Mvc;
+
+namespace proje1.Controllers
+{
+    public class HomeController : Controller
+    {
+        private SqlConnection connection = new SqlConnection("Data Source=DESKTOP-JU7J8P7;Initial Catalog=Taxi;Integrated Security=True");
+        private List<CustomerVehicles> cusVehicles;
+        private Customer customer;
+
+        private MongoDBContext dBContext;
+        private IMongoCollection<Vehicle> mongoCollection;
+
+        public HomeController()
+        {
+            dBContext = new MongoDBContext();
+            mongoCollection = dBContext.database.GetCollection<Vehicle>("Vehicles");
+        }
+
+        // GET: Home
+        public ActionResult Index(Customer cus)   
+        {
+            customer = cus;
+
+            cusVehicles = GetCustomerVehicles(customer.CusID);
+
+            var vehicle1 = mongoCollection.Find(x => x.ID == cusVehicles[0].VehicleID).ToList();
+            var vehicle2 = mongoCollection.Find(x => x.ID == cusVehicles[1].VehicleID).ToList();
+
+            DateTime date1 = vehicle1[vehicle1.Count-1].Date;
+            date1 = date1.AddMinutes(-30);
+            DateTime date2 = vehicle2[vehicle2.Count - 1].Date;
+            date2 = date2.AddMinutes(-30);
+
+            var vehicle11 = mongoCollection.Find(x => x.Date >= date1 && x.ID == cusVehicles[0].VehicleID).ToList();
+            var vehicle22 = mongoCollection.Find(x => x.Date >= date2 && x.ID == cusVehicles[1].VehicleID).ToList();
+
+            int visitingID = GetVisitingID();
+
+            TempData["visitingID"] = visitingID;
+            ViewData["customer"] = customer;
+            ViewData["vehicle1"] = vehicle11;
+            ViewData["vehicle2"] = vehicle22;
+
+            return View();
+        }
+
+        [HttpPost]
+        public ActionResult Map(TimeSpan begin, TimeSpan end, int vId)
+        {
+            var vehicle = mongoCollection.Find(x => x.ID == vId).ToList();
+
+            DateTime dateBegin = vehicle[vehicle.Count - 1].Date;
+            DateTime dateEnd = vehicle[vehicle.Count - 1].Date;
+
+            dateBegin = dateBegin.AddHours(-begin.Hours);
+            dateBegin = dateBegin.AddMinutes(-begin.Minutes);
+
+            dateEnd = dateEnd.AddHours(-end.Hours);
+            dateEnd = dateEnd.AddMinutes(-end.Minutes);
+
+            vehicle = mongoCollection.Find(x => x.ID == vId && x.Date >= dateBegin && x.Date <= dateEnd).ToList();
+
+            ViewData["vehicle"] = vehicle;
+            
+            if(begin >= end)
+            {
+                ViewBag.Info = "The positions of the vehicle with an id of " + vId + 
+                    " from " + begin + " hours ago to " + end + " hours ago.";
+            }
+            else
+            {
+                ViewBag.Info = "Begin value (" + begin + ") cannot be less than end value (" + end + ")!";
+            }
+
+            return View();
+        }
+
+        public ActionResult Logout()
+        {
+            DateTime now = DateTime.Now;
+            UpdateLogout(Convert.ToInt32(TempData["visitingID"]), now);
+            return RedirectToAction("Index", "Login");
+        }
+
+        private Customer GetCustomer(int id)
+        {
+            Customer customer = new Customer();
+            connection.Open();
+            string sql = "SELECT * from Customer WHERE cusID = @id";
+            SqlCommand cmd = new SqlCommand(sql, connection);
+            cmd.Parameters.AddWithValue("id", id);
+            SqlDataReader reader = cmd.ExecuteReader();
+
+            while (reader.Read())
+            {
+                customer = new Customer(Convert.ToInt32(reader["cusID"]), reader["cusName"].ToString(), reader["cusLastName"].ToString(), reader["cusEmail"].ToString(), reader["cusPassword"].ToString(), Convert.ToInt32(reader["suspended"]), Convert.ToInt32(reader["incorrect"]));
+            }
+            connection.Close();
+
+            return customer;
+        }
+
+        private void UpdateLogout(int visitingID, DateTime now)
+        {
+            connection.Open();
+            string sql = "UPDATE VisitingTime SET logout = @now WHERE visitingID = @visitingID";
+            SqlCommand cmd = new SqlCommand(sql, connection);
+            cmd.Parameters.AddWithValue("now", now);
+            cmd.Parameters.AddWithValue("visitingID", visitingID);
+            cmd.ExecuteNonQuery();
+            connection.Close();
+        }
+
+        private List<CustomerVehicles> GetCustomerVehicles(int cusID)
+        {
+            List<CustomerVehicles> customerVehicles = new List<CustomerVehicles>();
+            connection.Open();
+            string sql = "SELECT * FROM Vehicle WHERE cusID = @cusID";
+            SqlCommand cmd = new SqlCommand(sql, connection);
+            cmd.Parameters.AddWithValue("cusID", cusID);
+            SqlDataReader reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                customerVehicles.Add(new CustomerVehicles(Convert.ToInt32(reader["vehicleID"]), Convert.ToInt32(reader["cusID"])));
+            }
+            connection.Close();
+            return customerVehicles;
+        }
+
+        private int GetVisitingID()
+        {
+            connection.Open();
+            string sql = "SELECT MAX(visitingID) FROM VisitingTime";
+            SqlCommand cmd = new SqlCommand(sql, connection);
+            SqlDataReader reader = cmd.ExecuteReader();
+            int visitingID = -1;
+            while (reader.Read())
+            {
+                visitingID = Convert.ToInt32(reader[0]);
+            }
+            connection.Close();
+            return visitingID;
+        }
+    }
+}
+
+
+
+using proje1.Models;
+using System;
+using System.Collections.Generic;
+using System.Data.SqlClient;
+using System.Linq;
+using System.Web;
+using System.Web.Mvc;
+
+namespace proje1.Controllers
+{
+    public class LoginController : Controller
+    {
+        SqlConnection connection = new SqlConnection("Data Source=DESKTOP-JU7J8P7;Initial Catalog=Taxi;Integrated Security=True");
+        List<Customer> customers = new List<Customer>();
+        Customer customer = null;
+        DateTime now;
+
+        // GET: Login
+        public ActionResult Index()
+        {
+            return View();
+        }
+
+        [HttpPost]
+        public ActionResult Index(string email, string psw)
+        {
+            connection.Open();
+            string sql = "SELECT * from Customer";
+            SqlCommand cmd = new SqlCommand(sql, connection);
+            SqlDataReader reader = cmd.ExecuteReader();
+       
+            while(reader.Read())
+            {
+                customers.Add(new Customer(Convert.ToInt32(reader["cusID"]), reader["cusName"].ToString(), reader["cusLastName"].ToString(), reader["cusEmail"].ToString(), reader["cusPassword"].ToString(), Convert.ToInt32(reader["suspended"]), Convert.ToInt32(reader["incorrect"])));
+            }
+
+            connection.Close();
+
+            var u = customers.FirstOrDefault(x => x.CusEmail == email && x.CusPassword == psw);
+
+            if(u != null)
+            {
+                if(u.Suspended != 1)
+                {
+                    now = DateTime.Now;
+                    customer = new Customer(u.CusID, u.CusName, u.CusLastName, u.CusEmail, u.CusPassword, u.Suspended, u.Incorrect);
+                    InsertLogin(customer.CusID, now);
+                  
+                    return RedirectToAction("Index", "Home", customer);
+                }
+                else
+                {
+                    ViewBag.LoginError = "Your account has been suspended.";
+                    customers.Clear();
+                    return View();
+                }  
+            }
+            else
+            {
+                var v = customers.FirstOrDefault(x => x.CusEmail == email);
+                if(v != null)
+                {
+                    UpdateIncorrect(email);
+                    CheckIncorrect(email);
+                }
+                customers.Clear();
+                ViewBag.LoginError = "Incorrect authentication credentials!";
+                return View();
+            }
+        }
+
+        private void UpdateIncorrect(string email)
+        {
+            connection.Open();
+            string sql = "UPDATE Customer SET incorrect = incorrect - 1 WHERE cusEmail = @email";
+            SqlCommand cmd = new SqlCommand(sql, connection);
+            cmd.Parameters.AddWithValue("email", email);
+            cmd.ExecuteNonQuery();
+            connection.Close();
+        }
+
+        private void CheckIncorrect(string email)
+        {
+            connection.Open();
+            int incorrect = 3;
+            string sql = "SELECT incorrect FROM Customer WHERE cusEmail = @email";
+            SqlCommand cmd = new SqlCommand(sql, connection);
+            cmd.Parameters.AddWithValue("email", email);
+            SqlDataReader reader = cmd.ExecuteReader();
+            while(reader.Read())
+            {
+                incorrect = Convert.ToInt32(reader["incorrect"]);
+            }
+            connection.Close();
+            if (incorrect <= 0)
+            {
+                UpdateSuspended(email);
+            }
+        }
+        
+        private void UpdateSuspended(string email)
+        {
+            connection.Open();
+            string sql = "UPDATE Customer SET suspended = 1 WHERE cusEmail = @email";
+            SqlCommand cmd = new SqlCommand(sql, connection);
+            cmd.Parameters.AddWithValue("email", email);
+            cmd.ExecuteNonQuery();
+            connection.Close();
+        }
+
+        private void InsertLogin(int cusID, DateTime now)
+        {
+            connection.Open();
+            string sql = "INSERT INTO VisitingTime (cusID, login) VALUES (@cusID, @now)";
+            SqlCommand cmd = new SqlCommand(sql, connection);
+            cmd.Parameters.AddWithValue("cusID", cusID);
+            cmd.Parameters.AddWithValue("now", now);
+            cmd.ExecuteNonQuery();
+            connection.Close();
+        }
+    }
+}
+
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Web;
+
+namespace proje1.Models
+{
+    public class Customer
+    {
+        public int CusID { get; set; }
+        public String CusName { get; set; }
+        public String CusLastName { get; set; }
+        public String CusEmail { get; set; }
+        public String CusPassword { get; set; }
+        public int Suspended { get; set; }
+        public int Incorrect { get; set; }
+
+        public Customer()
+        {
+
+        }
+
+        public Customer(int cusID, String cusName, String cusLastName, String cusEmail, String cusPassword, int suspended, int incorrect)
+        {
+            CusID = cusID;
+            CusName = cusName;
+            CusLastName = cusLastName;
+            CusEmail = cusEmail;
+            CusPassword = cusPassword;
+            Suspended = suspended;
+            Incorrect = incorrect;
+        }
+       
+    }
+}
+
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Web;
+
+namespace proje1.Models
+{
+    public class CustomerVehicles
+    {
+        public int VehicleID { get; set; }
+        public int CusID { get; set; }
+
+        public CustomerVehicles()
+        {
+
+        }
+
+        public CustomerVehicles(int vehicleID, int cusID)
+        {
+            VehicleID = vehicleID;
+            CusID = cusID;
+        }
+    }
+}
+
+
+using MongoDB.Bson;
+using MongoDB.Bson.Serialization.Attributes;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Web;
+
+namespace proje1.Models
+{
+    public class Vehicle
+    {
+        [BsonId]
+        public ObjectId id { get; set; }
+        [BsonElement("Date")]
+        public DateTime Date { get; set; }
+        [BsonElement("Lat")]
+        public string Lat { get; set; }
+        [BsonElement("Lng")]
+        public string Lng { get; set; }
+        [BsonElement("ID")]
+        public int ID { get; set; }
+    }
+}
+
+
+
+using System;
+using System.Collections.Generic;
+using System.Data.SqlClient;
+using System.Linq;
+using System.Web;
+
+namespace proje1.Database
+{
+    public class DbHelper
+    {
+        public static SqlConnection connection = new SqlConnection("Data Source=DESKTOP-JU7J8P7;Initial Catalog=Taxi;Integrated Security=True");
+
+ 
+    }
+}
+
+
+using MongoDB.Driver;
+using System;
+using System.Collections.Generic;
+using System.Configuration;
+using System.Linq;
+using System.Web;
+
+namespace proje1.Database
+{
+    public class MongoDBContext
+    {
+        MongoClient client;
+        public IMongoDatabase database;
+
+        public MongoDBContext()
+        {
+            var client = new MongoClient(ConfigurationManager.AppSettings["MongoDBHost"]);
+            database = client.GetDatabase(ConfigurationManager.AppSettings["MongoDBName"]);
+        }
+    }
+}
+
+
+@using proje1.Models;
+
+@{
+    Layout = null;
+    var customer = (Customer)ViewData["customer"];
+    var vehicle1 = (List<Vehicle>)ViewData["vehicle1"];
+    var vehicle2 = (List<Vehicle>)ViewData["vehicle2"];
+}
+
+<!DOCTYPE html>
+
+<html>
+<head>
+    <meta name="viewport" content="width=device-width" />
+    <title>Index</title>
+    <link rel="stylesheet" href="~/Content/Css/map.css">
+    <link rel="stylesheet" href="~/Content/Css/popup.css" />
+    <link rel="stylesheet" href="~/Content/Css/scrollbar.css" />
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="logo">
+                <img src="~/Content/images/logo.png" alt="">
+            </div>
+            <div class="menu">
+                <ul>
+                    <li><a href="#">Home</a></li>
+                    <li><a href="#">Contact</a></li>
+                    <li><a href="#">About</a></li>
+                </ul>
+            </div>
+            <div class="cus-icon">
+                <img src="~/Content/images/icon.png" alt="">
+            </div>
+            <div class="cus-info">
+                <a href="#">@customer.CusName @customer.CusLastName</a>
+                <ul>
+                    <li>
+                        <a href="/Home/Logout">Sign out</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+        <div class="body">
+            <div id="map"></div>
+            <div class="list-container">
+                <h2>Your Vehicles</h2>
+                <div class="list-element">
+                    <div class="row">
+                        Vehicle ID: @vehicle1[0].ID
+                    </div>
+                    <button type="button" id="btn1">Preview</button>
+                </div>
+                <div class="list-element">
+                    <div class="row">
+                        Vehicle ID: @vehicle2[0].ID
+                    </div>
+                    <button type="button" id="btn2">Preview</button>
+                </div>
+                <div class="popup" id="popup">
+                    <div class="popup-content">
+                        <h3 id="h3"></h3>
+                        <hr>
+                        @using (Html.BeginForm("Map", "Home", FormMethod.Post, new { target = "_blank" }))
+                        {
+                            <div class="form-control">
+                                <label>Begin:</label>
+                                <input type="time" name="begin" id="begin">
+                            </div>
+                            <div class="form-control">
+                                <label>&nbsp;&nbsp;End:&nbsp;</label>
+                                <input type="time" name="end" id="end">
+                            </div>
+                            <div class="form-control">
+                                <input type="submit" value="View">
+                            </div>
+                            <div class="id">
+                                <input type="text" id="vId" name="vId" />
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="nebu">
+            190202081@kocaeli.edu.tr |
+            190202109@kocaeli.edu.tr
+        </div>
+    </div>
+
+    <script>
+        var vehicle1 = @Html.Raw(Json.Encode(vehicle1));
+        var vehicle2 = @Html.Raw(Json.Encode(vehicle2));
+
+        let map;
+        function initMap() {
+            map = new google.maps.Map(document.getElementById("map"), {
+                center: { lat: Number(vehicle1[0].Lat), lng: Number(vehicle1[0].Lng) },
+                zoom: 12,
+            });
+
+            var latLngsV1 = [];
+            var latLngsV2 = [];
+            var iconUrlV1 = "http://maps.google.com/mapfiles/ms/icons/yellow-dot.png";
+            var iconUrlV2 = "http://maps.google.com/mapfiles/ms/icons/green-dot.png";
+            var colorV1 = "red";
+            var colorV2 = "blue";
+
+            for (let i = 0; i < vehicle1.length; i++) {
+                const newLatLng = new google.maps.LatLng(Number(vehicle1[i].Lat), Number(vehicle1[i].Lng));
+                const title = "Vehicle Id: " + vehicle1[i].ID + " | Location: " + i;
+                addMarker({ coords: newLatLng }, title, iconUrlV1);
+                latLngsV1.push(newLatLng);
+            }
+
+            for (let i = 0; i < vehicle2.length; i++) {
+                const newLatLng = new google.maps.LatLng(Number(vehicle2[i].Lat), Number(vehicle2[i].Lng));
+                const title = "Vehicle Id: " + vehicle2[i].ID + " | Location: " + i;
+                addMarker({ coords: newLatLng }, title, iconUrlV2);
+                latLngsV2.push(newLatLng);
+            }
+
+            drawLine(latLngsV1, colorV1);
+            drawLine(latLngsV2, colorV2);
+
+            function addMarker(proops, title, iconUrl) {
+                const marker = new google.maps.Marker({
+                    position: proops.coords,
+                    map: map,
+                    title: title,
+                    icon: iconUrl
+                });
+            }
+
+            function drawLine(latlng, color) {
+                var line = new google.maps.Polyline({
+                    path: latlng,
+                    geodesic: true,
+                    strokeColor: color,
+                    strokeOpacity: 1.0,
+                    strokeWeight: 2,
+                });
+                line.setMap(map);
+            }
+        };
+    </script>
+    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCXWuRsJJ7CWNPT5hseKv_RIry8uH9Jtr0&callback=initMap&v=weekly" async></script>
+
+    <script>
+        var popup = document.getElementById('popup');
+        var btn1 = document.getElementById("btn1");
+        var btn2 = document.getElementById("btn2");
+        var vId = document.querySelector('input[name="vId"]');
+        var begin = document.querySelector('input[name="begin"]');
+        var end = document.querySelector('input[name="end"]');
+        var h3 = document.getElementById("h3");
+
+        btn1.onclick = function () {
+            vId.value = @vehicle1[0].ID;
+            h3.innerHTML = "<h3>Vehicle Id: @vehicle1[0].ID</h3>";
+            begin.value = "01:00:00";
+            end.value = "00:00:00";
+            popup.style.display = "block";
+        }
+
+        btn2.onclick = function () {
+            vId.value = @vehicle2[0].ID;
+            h3.innerHTML = "<h3>Vehicle Id: @vehicle2[0].ID</h3>";
+            begin.value = "01:00:00";
+            end.value = "00:00:00";
+            popup.style.display = "block";
+        }
+
+        window.onclick = function (event) {
+            if (event.target == popup) {
+                popup.style.display = "none";
+            }
+        }
+    </script>
+</body>
+</html>
+
+
+
+
+@{
+    Layout = null;
+    var vehicle = ViewData["vehicle"];
+}
+
+<!DOCTYPE html>
+
+<html>
+<head>
+    <meta name="viewport" content="width=device-width" />
+    <title>Map</title>
+</head>
+<body>
+    <div class="info">@ViewBag.Info</div>
+    <div id="map"></div>
+
+    <script>
+        var vehicle = @Html.Raw(Json.Encode(vehicle));
+
+        let map;
+
+        function initMap() {
+
+            var latLngs = [];
+
+            if (vehicle.length > 0) {
+                map = new google.maps.Map(document.getElementById("map"), {
+                    center: { lat: Number(vehicle[0].Lat), lng: Number(vehicle[0].Lng) },
+                    zoom: 12,
+                });
+
+                for (let i = 0; i < vehicle.length; i++) {
+                    const newLatLng = new google.maps.LatLng(Number(vehicle[i].Lat), Number(vehicle[i].Lng));
+                    const title = "Vehicle Id: " + vehicle[i].ID + " | Location: " + i;
+                    addMarker({ coords: newLatLng }, title);
+                    latLngs.push(newLatLng);
+                }
+
+                drawLine(latLngs);
+            } else {
+                map = new google.maps.Map(document.getElementById("map"), {
+                    center: { lat: 59.34777828444246, lng: 18.057839340988682 },
+                    zoom: 12,
+                });
+            }
+
+            function addMarker(proops, title) {
+                const marker = new google.maps.Marker({
+                    position: proops.coords,
+                    map: map,
+                    title: title,
+                    icon: {
+                        url: "http://maps.google.com/mapfiles/ms/icons/yellow-dot.png"
+                    }
+                });
+            }
+
+            function drawLine(latlng) {
+                var line = new google.maps.Polyline({
+                    path: latlng,
+                    geodesic: true,
+                    strokeColor: 'purple',
+                    strokeOpacity: 1.0,
+                    strokeWeight: 2,
+                });
+                line.setMap(map);
+            }
+        }
+    </script>
+
+    <!-- Async script executes immediately and must be after any DOM elements used in callback. -->
+    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCXWuRsJJ7CWNPT5hseKv_RIry8uH9Jtr0&callback=initMap&v=weekly" async></script>
+
+    <style>
+        #map {
+            height: 70%;
+            width: 70%;
+            margin: auto;
+            border: 5px solid #000;
+            border-radius: 20px;
+        }
+
+        .info {
+            margin-top: 7%;
+            text-align: center;
+        }
+
+        html,
+        body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+        }
+    </style>
+</body>
+</html>
+
+
+
+
+@{
+    Layout = null;
+}
+
+<!DOCTYPE html>
+
+<html>
+<head>
+    <meta name="viewport" content="width=device-width" />
+    <title>Login</title>
+    <link rel="stylesheet" href="@Url.Content("~/Content/Css/login.css")" type="text/css" />
+    <link rel="stylesheet" href="@Url.Content("~/Content/Css/scrollbar.css")" type="text/css" />
+</head>
+<body>
+    <div class="container">
+        <div class="form-container">
+            <h1>sign in</h1>
+            @using (Html.BeginForm("Index", "Login", FormMethod.Post))
+            {
+                <div class="form-control">
+                    <label for="email">email</label>
+                    <input type="email" name="email" id="email">
+                </div>
+                <div class="form-control">
+                    <label for="psw">password</label>
+                    <input type="password" name="psw" id="psw">
+                </div>
+                <div>
+                    @ViewBag.LoginError
+                </div>
+                <div class="form-control">
+                    <input type="submit" value="continue">
+                </div>
+            }
+        </div>
+    </div>
+</body>
+</html>
+
+
+
+*{
+    margin: 0;
+    padding: 0;
+    font-family: Arial, Helvetica, sans-serif;
+}
+.container{
+    width: 100%;
+    height: 100vh;
+    background-color: gainsboro;
+    display: block;
+}
+.form-container{
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background-color: #fff;
+    padding: 80px;
+    border-radius: 10px;
+}
+.form-control{
+    text-transform: capitalize;
+}
+.form-control input{
+    width: 300px;
+    display: block;
+    padding: 6px;
+    border: none;
+    border-bottom: 1px solid black;
+    outline: none;
+    margin: 1em 0;
+}
+.form-control input[type="submit"]{
+    width: 100%;
+    display: block;
+    padding: 10px;
+    outline: none;
+    border: none;
+    margin-top: 2em;
+    background-color: #a3c9a6;
+    border-radius: 6px;
+    text-transform: capitalize;
+    font-size: medium;
+    font-weight: bold;
+}
+.form-control input[type="submit"]:hover{
+    background-color: #cadebd;
+    color: #fff;
+}
+h1{
+    text-transform: capitalize;
+    text-align: center;
+    margin-bottom: 1em;
+}
+
+
+
+* {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+#map{
+    width: 70%;
+    height: 74vh;
+    border-radius: 20px;
+    margin: 50px;
+    border: 5px solid #000;
+}
+html,
+body {
+    height: 100%;
+    font-family: Open Sans, sans-serif;
+}
+.container {
+    width: auto;
+    height: auto;
+}
+.header {
+    width: 100%;
+    height: 63px;
+    background-color: #000;
+    display: flex;
+}
+.body {
+    width: auto;
+    height: auto;
+    display: flex;
+}
+.logo {
+    padding: 18px 3%;
+}
+.logo img {
+    width: 48px;
+    height: auto;
+}
+.menu ul {
+    margin: 0;
+    padding: 0;
+}
+.menu li {
+    float: left;
+}
+.menu a {
+    display: block;
+    line-height: 63px;
+    color: #fff;
+    text-align: center;
+    padding: 0 16px;
+    text-decoration: none;
+}
+.menu a:hover {
+    background-color: rgb(36, 36, 36);
+    color: white;
+}
+.cus-icon {
+    margin: 10px 0 0 auto;
+}
+.cus-icon img {
+    width: 40px;
+    height: auto;
+    float: right;
+}
+.cus-info {
+    line-height: 63px;
+    text-align: center;
+    text-decoration: none;
+    margin-right: 3%;
+    z-index: 1;
+}
+.cus-info >a {
+    display: block;
+    color: gray;
+    text-decoration: none;
+    padding: 0 16px;
+    line-height: 63px;
+    font-size: small;
+}
+.cus-info ul {
+    background-color: #000;
+    display: none;
+}
+.cus-info ul a {
+    display: block;
+    padding: 0 16px;
+    text-decoration: none;
+    color: gray;
+    font-size: small;
+}
+.cus-info a:hover {
+    background-color: rgb(36, 36, 36);
+    color: #fff;
+}
+.cus-info:hover ul{
+    display: block;
+}
+.list-container {
+    width: 20%;
+    height: 74vh;
+    margin: 50px 50px 0 auto;
+    border-radius: 20px;
+    background-color: #fff;
+    text-align: center;
+    z-index: 0;
+    overflow-y: scroll;
+}
+.list-element {
+    position: relative;
+    margin: auto;
+    height: auto;
+    width: 90%;
+    background-color: #fff;
+    margin-top: 20px;
+    box-shadow: 1px 1px 10px grey;
+}
+.row {
+    color: #000;
+    font-size: small;
+    font-weight: bold;
+    position: inherit;
+    margin: auto;
+    padding: 2px;
+    background-color: #a3c9a6;
+}
+button {
+    width: 100%;
+    height: 100%;
+    background-color: #cadebd;
+    border: none;
+}
+button:hover {
+    background-color: #a3c9a6;
+}
+.list-container h2 {
+    margin: 20px;
+}
+.nebu {
+    width: 100%;
+    height: 3vh;
+    background-color: gainsboro;
+    text-align: center;
+    color: gray;
+    font-size: small;
+}
+
+
+
+.popup {
+    display: none;
+    position: fixed;
+    z-index: 1;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    background-color: rgba(0,0,0,0.4);
+}
+h3 {
+    padding: 2%;
+}
+.popup label {
+    font-size: 14px;
+    font-weight: bold;
+}
+.popup-content {
+    background-color: #fff;
+    margin: 15% auto;
+    padding: 10px;
+    width: 16%;
+    height: auto;
+    border-radius: 2%;
+    border: 3px solid #000;
+}
+.form-control {
+    padding: 4px;
+}
+.id {
+    display: none;
+}
+input[type=submit] {
+    width: 100%;
+    height: 24px;
+    font-size: 14px;
+    background-color: #cadebd;
+    border: none;
+    border-radius: 5px;
+}
+input[type=submit]:hover {
+    background-color: #a3c9a6;
+    color: #fff;
+}
+input[type=time] {
+    border: none;
+    color: #fff;
+    font-size: 14px;
+    font-weight: bold;
+    font-family: helvetica;
+    width: 124px;
+}
+input[type=time]::-webkit-datetime-edit-fields-wrapper {
+    display: flex;
+}
+input[type=time]::-webkit-datetime-edit-text {
+    padding: 12px 2px;
+}
+input[type=time]::-webkit-datetime-edit-hour-field {
+    background-color: gainsboro;
+    border-radius: 15%;
+    padding: 12px 13px;
+}
+input[type=time]::-webkit-datetime-edit-minute-field {
+    background-color: gainsboro;
+    border-radius: 15%;
+    padding: 12px 13px;
+}
+
+
+
+::-webkit-scrollbar {
+    width: 10px;
+}
+
+::-webkit-scrollbar-track {
+    box-shadow: inset 0 0 5px grey;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #cadebd;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #a3c9a6;
+}

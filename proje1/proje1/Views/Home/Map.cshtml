@@ -1,0 +1,97 @@
+﻿
+@{
+    Layout = null;
+    var vehicle = ViewData["vehicle"];
+}
+
+<!DOCTYPE html>
+
+<html>
+<head>
+    <meta name="viewport" content="width=device-width" />
+    <title>Map</title>
+</head>
+<body>
+    <div class="info">@ViewBag.Info</div>
+    <div id="map"></div>
+
+    <script>
+        var vehicle = @Html.Raw(Json.Encode(vehicle));
+
+        let map;
+
+        function initMap() {
+
+            var latLngs = [];
+
+            if (vehicle.length > 0) {
+                map = new google.maps.Map(document.getElementById("map"), {
+                    center: { lat: Number(vehicle[0].Lat), lng: Number(vehicle[0].Lng) },
+                    zoom: 12,
+                });
+
+                for (let i = 0; i < vehicle.length; i++) {
+                    const newLatLng = new google.maps.LatLng(Number(vehicle[i].Lat), Number(vehicle[i].Lng));
+                    const title = "Vehicle Id: " + vehicle[i].ID + " | Location: " + i;
+                    addMarker({ coords: newLatLng }, title);
+                    latLngs.push(newLatLng);
+                }
+
+                drawLine(latLngs);
+            } else {
+                map = new google.maps.Map(document.getElementById("map"), {
+                    center: { lat: 59.34777828444246, lng: 18.057839340988682 },
+                    zoom: 12,
+                });
+            }
+
+            function addMarker(proops, title) {
+                const marker = new google.maps.Marker({
+                    position: proops.coords,
+                    map: map,
+                    title: title,
+                    icon: {
+                        url: "http://maps.google.com/mapfiles/ms/icons/yellow-dot.png"
+                    }
+                });
+            }
+
+            function drawLine(latlng) {
+                var line = new google.maps.Polyline({
+                    path: latlng,
+                    geodesic: true,
+                    strokeColor: 'purple',
+                    strokeOpacity: 1.0,
+                    strokeWeight: 2,
+                });
+                line.setMap(map);
+            }
+        }
+    </script>
+
+    <!-- Async script executes immediately and must be after any DOM elements used in callback. -->
+    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCXWuRsJJ7CWNPT5hseKv_RIry8uH9Jtr0&callback=initMap&v=weekly" async></script>
+
+    <style>
+        #map {
+            height: 70%;
+            width: 70%;
+            margin: auto;
+            border: 5px solid #000;
+            border-radius: 20px;
+        }
+
+        .info {
+            margin-top: 7%;
+            text-align: center;
+        }
+
+        html,
+        body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+        }
+    </style>
+</body>
+</html>

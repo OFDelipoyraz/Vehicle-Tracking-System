@@ -1,0 +1,39 @@
+﻿
+@{
+    Layout = null;
+}
+
+<!DOCTYPE html>
+
+<html>
+<head>
+    <meta name="viewport" content="width=device-width" />
+    <title>Login</title>
+    <link rel="stylesheet" href="@Url.Content("~/Content/Css/login.css")" type="text/css" />
+    <link rel="stylesheet" href="@Url.Content("~/Content/Css/scrollbar.css")" type="text/css" />
+</head>
+<body>
+    <div class="container">
+        <div class="form-container">
+            <h1>sign in</h1>
+            @using (Html.BeginForm("Index", "Login", FormMethod.Post))
+            {
+                <div class="form-control">
+                    <label for="email">email</label>
+                    <input type="email" name="email" id="email">
+                </div>
+                <div class="form-control">
+                    <label for="psw">password</label>
+                    <input type="password" name="psw" id="psw">
+                </div>
+                <div>
+                    @ViewBag.LoginError
+                </div>
+                <div class="form-control">
+                    <input type="submit" value="continue">
+                </div>
+            }
+        </div>
+    </div>
+</body>
+</html>
